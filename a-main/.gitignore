@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+apps/api/storage/*
+!apps/api/storage/.gitkeep
+*.log

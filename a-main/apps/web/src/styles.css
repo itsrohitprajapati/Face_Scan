@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #17201c;
+  background: #f6f7f4;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --ink: #17201c;
+  --muted: #68736c;
+  --line: #dfe5df;
+  --paper: #ffffff;
+  --canvas: #f6f7f4;
+  --green: #146c4a;
+  --green-soft: #e4f1e8;
+  --orange: #b75f2b;
+  --orange-soft: #fff0df;
+  --red: #ad3c38;
+  --red-soft: #fbe8e6;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; background: var(--canvas); }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+::selection { background: #cce3d5; }
+
+.tabular { font-variant-numeric: tabular-nums; }
+.fade-in { animation: fade-in .35s ease both; }
+.ask-ai-button {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: linear-gradient(110deg, #146c4a, #248f68, #5a4fcf, #146c4a);
+  background-size: 300% 300%;
+  animation: ask-ai-gradient 4s linear infinite;
+  box-shadow: 0 7px 20px rgb(20 108 74 / 18%);
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.ask-ai-button:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 10px 26px rgb(54 80 150 / 25%); }
+.ask-ai-button:not(:disabled)::after {
+  content: "";
+  position: absolute;
+  inset: -60%;
+  z-index: -1;
+  background: conic-gradient(from 0deg, transparent, rgb(255 255 255 / 32%), transparent 28%);
+  animation: ask-ai-rotate 2.8s linear infinite;
+}
+@keyframes ask-ai-gradient { 0% { background-position: 0% 50%; } 100% { background-position: 300% 50%; } }
+@keyframes ask-ai-rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ask-ai-button, .ask-ai-button::after { animation: none; } }
+@keyframes fade-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }

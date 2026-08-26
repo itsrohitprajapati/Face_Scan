@@ -1,0 +1,16 @@
+{
+  "name": "smart-classroom-attendance",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace @attendance/web run dev",
+    "build:web": "npm --workspace @attendance/web run build"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
