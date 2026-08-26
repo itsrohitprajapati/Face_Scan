@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../theme.dart';
 import '../widgets/ui.dart';
 import 'auth_gate.dart';
+import 'class_detail_screen.dart';
 
 class TeacherHomeScreen extends StatefulWidget {
   final AppUser user;
@@ -27,7 +28,9 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
 
   Future<void> _refresh() async {
     final future = ApiService.instance.listClasses();
-    setState(() => _future = future);
+    setState(() {
+      _future = future;
+    });
     try {
       await future;
     } catch (_) {}
@@ -55,6 +58,16 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
     );
     if (created == true) {
       _snack('Class created');
+      await _refresh();
+    }
+  }
+
+  Future<void> _openClass(Classroom classroom) async {
+    final deleted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => ClassDetailScreen(classroom: classroom)),
+    );
+    if (deleted == true) {
+      _snack('Class deleted');
       await _refresh();
     }
   }
@@ -115,6 +128,7 @@ class _TeacherHomeScreenState extends State<TeacherHomeScreen> {
                 else
                   ...classes.map((c) => _ClassCard(
                         classroom: c,
+                        onOpen: () => _openClass(c),
                         onCopy: () {
                           Clipboard.setData(ClipboardData(text: c.joinCode));
                           _snack('Join code ${c.joinCode} copied');
@@ -147,8 +161,9 @@ class _WebNotice extends StatelessWidget {
           SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Create classes and share join codes here. Running attendance '
-              'sessions, camera feeds and reports live in the web dashboard.',
+              'Tap a class to see its roster and each student\'s attendance, or '
+              'to delete it. Live attendance sessions, camera feeds and reports '
+              'run in the web dashboard.',
               style: TextStyle(color: AppColors.orange, fontSize: 12.5, height: 1.35),
             ),
           ),
@@ -161,87 +176,104 @@ class _WebNotice extends StatelessWidget {
 class _ClassCard extends StatelessWidget {
   final Classroom classroom;
   final VoidCallback onCopy;
-  const _ClassCard({required this.classroom, required this.onCopy});
+  final VoidCallback onOpen;
+  const _ClassCard({
+    required this.classroom,
+    required this.onCopy,
+    required this.onOpen,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.paper,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.line),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: AppColors.greenSoft,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.class_outlined,
-                    color: AppColors.green, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onOpen,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(classroom.name,
-                        style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.ink)),
-                    if (classroom.section != null &&
-                        classroom.section!.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(classroom.section!,
-                          style: const TextStyle(
-                              color: AppColors.muted, fontSize: 12.5)),
-                    ],
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.greenSoft,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.class_outlined,
+                          color: AppColors.green, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(classroom.name,
+                              style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.ink)),
+                          if (classroom.section != null &&
+                              classroom.section!.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(classroom.section!,
+                                style: const TextStyle(
+                                    color: AppColors.muted, fontSize: 12.5)),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.chevron_right, color: AppColors.muted),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          InkWell(
-            onTap: onCopy,
-            borderRadius: BorderRadius.circular(10),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppColors.canvas,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.line),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.vpn_key_outlined,
-                      size: 16, color: AppColors.muted),
-                  const SizedBox(width: 8),
-                  Text(
-                    classroom.joinCode,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.ink,
-                      letterSpacing: 1.2,
+                const SizedBox(height: 14),
+                InkWell(
+                  onTap: onCopy,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.canvas,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.line),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.vpn_key_outlined,
+                            size: 16, color: AppColors.muted),
+                        const SizedBox(width: 8),
+                        Text(
+                          classroom.joinCode,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const Spacer(),
+                        const Icon(Icons.copy, size: 16, color: AppColors.green),
+                      ],
                     ),
                   ),
-                  const Spacer(),
-                  const Icon(Icons.copy, size: 16, color: AppColors.green),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

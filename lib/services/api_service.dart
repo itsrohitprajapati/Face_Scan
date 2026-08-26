@@ -32,7 +32,7 @@ class ApiService {
   /// time with `--dart-define=API_BASE_URL=...` or in-app via server settings.
   static const String _defaultBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:8000/api/v1',
+    defaultValue: 'http://192.168.1.8:8000/api/v1',
   );
 
   String _baseUrl = _defaultBaseUrl;
@@ -136,7 +136,35 @@ class ApiService {
     return response.body.isEmpty ? null : jsonDecode(response.body);
   }
 
-  // ---- Auth ---------------------------------------------------------------
+  /// Issues a DELETE. The backend replies `204 No Content`, so there is no body
+  /// to decode; a non-2xx status is surfaced through [_fail].
+  Future<void> _delete(String path) async {    late final http.Response response;
+    try {
+      response = await http.delete(_uri(path), headers: _headers(json: false));
+    } on SocketException {
+      throw ApiException('Cannot reach the server at $_baseUrl.', 0);
+    } on HttpException {
+      throw ApiException('Cannot reach the server at $_baseUrl.', 0);
+    }
+    if (response.statusCode >= 400) _fail(response);
+  }
+
+  Future<dynamic> _patch(String path, Object? body) async {
+    late final http.Response response;
+    try {
+      response = await http.patch(
+        _uri(path),
+        headers: _headers(),
+        body: body == null ? null : jsonEncode(body),
+      );
+    } on SocketException {
+      throw ApiException('Cannot reach the server at $_baseUrl.', 0);
+    } on HttpException {
+      throw ApiException('Cannot reach the server at $_baseUrl.', 0);
+    }
+    if (response.statusCode >= 400) _fail(response);
+    return response.body.isEmpty ? null : jsonDecode(response.body);
+  }
 
   Future<AuthSession> login(String identifier, String password) async {
     final data = await _post('/auth/login', {
@@ -224,6 +252,59 @@ class ApiService {
   Future<Classroom> joinClass(String joinCode) async {
     final data = await _post('/classes/join', {'join_code': joinCode.trim().toUpperCase()});
     return Classroom.fromJson(data as Map<String, dynamic>);
+  }
+
+  /// Permanently deletes a teacher-owned class. The backend rejects this with a
+  /// `409` while the class still has a live attendance session.
+  Future<void> deleteClass(String classId) => _delete('/classes/$classId');
+
+  /// Reports the one class currently running a live session for this teacher,
+  /// if any. Every field is null when nothing is live.
+  Future<ActiveTeacherSession> activeTeacherSession() async =>
+      ActiveTeacherSession.fromJson(await _get('/classes/active-session') as Map<String, dynamic>);
+
+  /// Lists every student enrolled in a class the teacher owns.
+  Future<List<ClassStudent>> listClassStudents(String classId) async {
+    final data = await _get('/classes/$classId/students') as List;
+    return data.map((e) => ClassStudent.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// One enrolled student's completed-session attendance history for a single
+  /// class the teacher owns.
+  Future<AttendanceSummary> studentAttendanceInClass(String classId, String studentId) async =>
+      AttendanceSummary.fromJson(
+        await _get('/classes/$classId/students/$studentId/attendance') as Map<String, dynamic>,
+      );
+
+  // ---- Attendance sessions (teacher) --------------------------------------
+
+  /// Every attendance session (active + completed) for a class the teacher owns,
+  /// newest first.
+  Future<List<AttendanceSession>> listClassSessions(String classId) async {
+    final data = await _get('/classes/$classId/sessions') as List;
+    return data.map((e) => AttendanceSession.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Per-student attendance for one session, including any teacher overrides.
+  Future<List<AttendanceRecord>> listSessionAttendance(String sessionId) async {
+    final data = await _get('/sessions/$sessionId/attendance') as List;
+    return data.map((e) => AttendanceRecord.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Records a teacher correction marking a student present / late / absent for a
+  /// completed session. The backend rejects this with `409` while the session is
+  /// still active.
+  Future<AttendanceOverride> overrideAttendance({
+    required String sessionId,
+    required String studentId,
+    required String status,
+    String reason = 'Teacher correction',
+  }) async {
+    final data = await _patch('/sessions/$sessionId/attendance/$studentId', {
+      'status': status,
+      'reason': reason.trim().isEmpty ? 'Teacher correction' : reason.trim(),
+    });
+    return AttendanceOverride.fromJson(data as Map<String, dynamic>);
   }
 
   // ---- Student attendance -------------------------------------------------

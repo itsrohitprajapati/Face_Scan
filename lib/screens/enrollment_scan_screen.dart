@@ -38,14 +38,39 @@ class EnrollmentScanScreen extends StatefulWidget {
 /// in each.
 enum _Pose { front, sideA, sideB, up, down }
 
+/// The nudge direction shown to the user for each pose. Drives the animated
+/// arrow around the ring so the *next* head move is obvious at a glance
+/// ("gently move your head to the left", etc.). Side detection itself stays
+/// direction-agnostic (see [_poseSatisfied]) so a mirrored front camera can
+/// never leave the user stuck — the arrow is guidance, not a hard gate.
+enum _MoveDir { none, left, right, up, down }
+
+_MoveDir _directionFor(_Pose pose) {
+  switch (pose) {
+    case _Pose.front:
+      return _MoveDir.none;
+    case _Pose.sideA:
+      return _MoveDir.left;
+    case _Pose.sideB:
+      return _MoveDir.right;
+    case _Pose.up:
+      return _MoveDir.up;
+    case _Pose.down:
+      return _MoveDir.down;
+  }
+}
+
 class _TurnBand {
-  static const double frontMaxYaw = 12; // |yaw| under this = "looking straight"
-  static const double frontMaxPitch = 16;
-  static const double sideMinYaw = 18; // turned enough to differ from front
-  static const double sideMaxYaw = 34; // but not a full profile (keeps 1 face)
-  static const double vertMinPitch = 18; // tilted up/down enough to differ from front
-  static const double vertMaxPitch = 40; // but not so extreme the face is lost
-  static const double vertMaxYaw = 20; // stay roughly centered while tilting
+  // Deliberately forgiving bands: the backend only needs five stills that each
+  // contain exactly one detectable face, so we guide pose variety without
+  // hard-gating on tight angle windows the user struggles to hold.
+  static const double frontMaxYaw = 18; // |yaw| under this = "looking straight"
+  static const double frontMaxPitch = 22;
+  static const double sideMinYaw = 16; // turned enough to differ from front
+  static const double sideMaxYaw = 50; // but not a full profile (keeps 1 face)
+  static const double vertMinPitch = 10; // tilted up/down enough to differ from front
+  static const double vertMaxPitch = 45; // but not so extreme the face is lost
+  static const double vertMaxYaw = 26; // stay roughly centered while tilting
 }
 
 class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
@@ -61,6 +86,7 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
   bool _capturing = false; // encoding/saving a still
   bool _finishing = false;
   bool _wantCapture = false; // hold animation completed -> grab next good frame
+  bool _manualWanted = false; // user tapped the manual shutter
 
   final List<File> _saved = [];
   int? _firstTurnSign; // sign of yaw captured for sideA; sideB must be opposite
@@ -77,7 +103,7 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
     )..repeat(reverse: true);
     _hold = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 550),
+      duration: const Duration(milliseconds: 400),
     )..addStatusListener((status) {
         if (status == AnimationStatus.completed && !_capturing && !_finishing) {
           _wantCapture = true; // captured on the next valid frame
@@ -86,7 +112,10 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
     _detector = FaceDetector(
       options: FaceDetectorOptions(
         performanceMode: FaceDetectorMode.fast,
-        minFaceSize: 0.2,
+        // Detect smaller faces too: the cover-cropped preview shows only part
+        // of the sensor frame, so a face that looks large on screen can be a
+        // modest fraction of the full image ML Kit actually sees.
+        minFaceSize: 0.1,
       ),
     );
     _initCamera();
@@ -123,7 +152,22 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
       if (input == null) return;
 
       final faces = await _detector.processImage(input);
-      final valid = faces.length == 1 && _poseSatisfied(faces.first);
+      final oneFace = faces.length == 1;
+
+      // Manual shutter: as soon as exactly one face is in frame, snap it for
+      // the current slot regardless of head pose. This guarantees enrollment
+      // can always be completed even when a guided pose is hard to hit.
+      if (_manualWanted) {
+        if (oneFace) {
+          _manualWanted = false;
+          await _capture(image, faces.first);
+        } else {
+          _setHint(_promptFor(faces));
+        }
+        return;
+      }
+
+      final valid = oneFace && _poseSatisfied(faces.first);
 
       if (!valid) {
         if (_hold.value != 0) _hold.reverse();
@@ -187,18 +231,29 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
       case _Pose.front:
         return 'Look straight at the camera';
       case _Pose.sideA:
-        return 'Slowly turn your head to one side';
+        return 'Now gently move your head to the left';
       case _Pose.sideB:
-        return 'Now turn to the other side';
+        return 'Now gently move your head to the right';
       case _Pose.up:
-        return 'Now slowly tilt your head up';
+        return 'Now gently move your head upward';
       case _Pose.down:
-        return 'Now slowly tilt your head down';
+        return 'Now gently move your head downward';
     }
   }
 
   void _setHint(String hint) {
     if (mounted && hint != _hint) setState(() => _hint = hint);
+  }
+
+  /// Arms a manual capture: the next frame containing exactly one face is saved
+  /// for the current slot, bypassing the guided pose gate.
+  void _triggerManualCapture() {
+    if (_capturing || _finishing || !mounted) return;
+    if (_hold.value != 0) _hold.reverse();
+    setState(() {
+      _manualWanted = true;
+      _hint = 'Hold still — capturing…';
+    });
   }
 
   // ---- Capture (heavy work offloaded to a background isolate) -------------
@@ -395,27 +450,62 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
                   pulse: _glow.value,
                   color: AppColors.green,
                   trackColor: Colors.white24,
+                  direction: _finishing ? _MoveDir.none : _directionFor(_pose),
                 ),
               ),
             ),
           ),
           const Spacer(),
-          Container(
-            margin: const EdgeInsets.all(20),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.line.withValues(alpha: 0.3)),
-            ),
-            child: Text(
-              _finishing ? 'All set!' : _hint,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(14),
+                    border:
+                        Border.all(color: AppColors.line.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(
+                    _finishing ? 'All set!' : _hint,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: (_capturing || _finishing)
+                        ? null
+                        : _triggerManualCapture,
+                    icon: const Icon(Icons.camera_alt_outlined),
+                    label: const Text('Capture photo'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      disabledBackgroundColor: Colors.white24,
+                      disabledForegroundColor: Colors.white70,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Follow the guide to auto-capture, or tap to grab a shot.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
             ),
           ),
         ],
@@ -586,6 +676,7 @@ class _PoseRingPainter extends CustomPainter {
   final double pulse;
   final Color color;
   final Color trackColor;
+  final _MoveDir direction; // which way to nudge the head next
 
   _PoseRingPainter({
     required this.captured,
@@ -595,6 +686,7 @@ class _PoseRingPainter extends CustomPainter {
     required this.pulse,
     required this.color,
     required this.trackColor,
+    this.direction = _MoveDir.none,
   });
 
   @override
@@ -692,6 +784,69 @@ class _PoseRingPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2,
     );
+
+    // Animated "go this way" arrow nudging toward the next pose.
+    _drawDirectionArrow(canvas, center, radius);
+  }
+
+  /// Draws a gently pulsing double-chevron between the face oval and the ring,
+  /// pointing in the direction the user should move their head next.
+  void _drawDirectionArrow(Canvas canvas, Offset center, double radius) {
+    if (direction == _MoveDir.none) return;
+
+    double dx = 0;
+    double dy = 0;
+    switch (direction) {
+      case _MoveDir.left:
+        dx = -1;
+        break;
+      case _MoveDir.right:
+        dx = 1;
+        break;
+      case _MoveDir.up:
+        dy = -1;
+        break;
+      case _MoveDir.down:
+        dy = 1;
+        break;
+      case _MoveDir.none:
+        return;
+    }
+
+    // Sit in the gap between the oval guide and the ring, drifting outward a
+    // touch with the pulse so it reads as a nudge in the travel direction.
+    final nudge = 3 + 4 * pulse;
+    final dist = radius * 0.66 + nudge;
+    final travel = math.atan2(dy, dx);
+
+    canvas.save();
+    canvas.translate(center.dx + dx * dist, center.dy + dy * dist);
+    canvas.rotate(travel); // +x now points the way to move
+
+    final glow = Paint()
+      ..color = color.withValues(alpha: 0.35 + 0.25 * pulse)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 9
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+    final stroke = Paint()
+      ..color = Colors.white.withValues(alpha: 0.95)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    Path chevron(double ox) => Path()
+      ..moveTo(ox - 6, -8)
+      ..lineTo(ox + 4, 0)
+      ..lineTo(ox - 6, 8);
+
+    for (final ox in const [0.0, 9.0]) {
+      canvas.drawPath(chevron(ox), glow);
+      canvas.drawPath(chevron(ox), stroke);
+    }
+    canvas.restore();
   }
 
   @override
@@ -699,6 +854,7 @@ class _PoseRingPainter extends CustomPainter {
     return old.captured != captured ||
         old.holdProgress != holdProgress ||
         old.active != active ||
-        old.pulse != pulse;
+        old.pulse != pulse ||
+        old.direction != direction;
   }
 }

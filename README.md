@@ -12,14 +12,15 @@ two things it always auto-generates locally:
 ## Two apps in one
 
 This project is now a **Smart Classroom Attendance client** that talks to the
-FastAPI backend in `a-main/`, with the original **360° face-embedding demo**
+FastAPI backend in `a/`, with the original **360° face-embedding demo**
 kept as a standalone tool.
 
 - **Attendance app (default flow):** launch → sign in / register → role
   dashboard.
   - *Teachers* register with an invite code, create classes, and share join
-    codes.
-  - *Students* register with their roll number and **3 face photos** (captured
+    codes. Tapping a class opens its roster, each student's attendance
+    history, and a delete-class action.
+  - *Students* register with their roll number and **5 face photos** (captured
     in-app, validated to contain exactly one face each), join classes by code,
     and view their attendance %, Present/Late/Absent counts, and session
     history.
@@ -36,11 +37,11 @@ backend derives and stores the face embeddings, so the same records power the
 web dashboards and recognition workers.
 
 > **Where matching actually happens.** Attendance recognition runs entirely on
-> the backend (`a-main/`) using **InsightFace** — SCRFD face detection + landmark
+> the backend (`a/`) using **InsightFace** — SCRFD face detection + landmark
 > alignment + ArcFace 512-d embeddings — over the room's CCTV/IP cameras. The
 > on-device **MobileFaceNet** model below powers only the standalone 360°
 > embedding demo; it is not used for attendance and its vectors are never sent
-> to the server (the app uploads the three enrollment photos and the backend
+> to the server (the app uploads the five enrollment photos and the backend
 > computes the embeddings).
 
 ## 1. One-time setup
