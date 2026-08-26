@@ -14,7 +14,7 @@ A local-first hackathon application for classroom attendance using a laptop webc
 
 1. An admin, teacher, or student creates an account from the shared login page.
 2. The admin creates physical rooms and configures each room's camera sources.
-3. A student captures three reference photos from their device camera, supplies name and roll number, and receives locally generated embeddings.
+3. A student captures five reference photos (front, left, right, up, and down poses) from their device camera, supplies name and roll number, and receives locally generated embeddings.
 4. A teacher creates a class and shares its join code.
 5. A student joins the class with that code.
 6. The teacher selects a class, enters a valid room code, and starts a session using every enabled camera in that room.
@@ -28,7 +28,7 @@ A local-first hackathon application for classroom attendance using a laptop webc
 - One sign-in entry point with role-based routing.
 - Admin registration protected by a demo invite code; the admin manages physical rooms and assigns one or more cameras to each room.
 - Teacher registration protected by a demo invite code. Teachers select a class and enter a room code to start attendance with all enabled room cameras.
-- Student face enrollment from exactly three browser-camera captures; file upload remains an API fallback for testing.
+- Student face enrollment from exactly five browser-camera captures (front, left, right, up, and down poses); file upload remains an API fallback for testing.
 
 ### Attendance
 

@@ -165,7 +165,7 @@ class ApiService {
     return session;
   }
 
-  /// Registers a student by uploading their profile plus exactly three face
+  /// Registers a student by uploading their profile plus exactly five face
   /// photos as multipart form data. The backend validates that each photo has
   /// exactly one detectable face and stores the derived embeddings.
   Future<AuthSession> registerStudent({

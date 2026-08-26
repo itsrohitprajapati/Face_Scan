@@ -13,8 +13,8 @@ import 'package:path_provider/path_provider.dart';
 import '../theme.dart';
 
 /// Guided, Face-ID-style enrollment capture that reuses the smooth look of the
-/// 360° scan but produces exactly **three JPEG stills** (front + both sides)
-/// for `ApiService.registerStudent`. It deliberately does NOT compute an
+/// 360° scan but produces exactly **five JPEG stills** (front, both sides, up,
+/// and down) for `ApiService.registerStudent`. It deliberately does NOT compute an
 /// embedding — the backend derives the biometric encodings from these photos.
 ///
 /// Smoothness notes (kept in parity with `face_scan_screen`):
@@ -33,20 +33,24 @@ class EnrollmentScanScreen extends StatefulWidget {
   State<EnrollmentScanScreen> createState() => _EnrollmentScanScreenState();
 }
 
-/// The three guided poses. Sides are intentionally mild (see [_TurnBand]) so
-/// the backend's frontal face detector still finds a single face in each.
-enum _Pose { front, sideA, sideB }
+/// The five guided poses. Side turns and up/down tilts are intentionally mild
+/// (see [_TurnBand]) so the backend's face detector still finds a single face
+/// in each.
+enum _Pose { front, sideA, sideB, up, down }
 
 class _TurnBand {
   static const double frontMaxYaw = 12; // |yaw| under this = "looking straight"
   static const double frontMaxPitch = 16;
   static const double sideMinYaw = 18; // turned enough to differ from front
   static const double sideMaxYaw = 34; // but not a full profile (keeps 1 face)
+  static const double vertMinPitch = 18; // tilted up/down enough to differ from front
+  static const double vertMaxPitch = 40; // but not so extreme the face is lost
+  static const double vertMaxYaw = 20; // stay roughly centered while tilting
 }
 
 class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
     with TickerProviderStateMixin {
-  static const int _required = 3;
+  static const int _required = 5;
 
   CameraController? _controller;
   late final FaceDetector _detector;
@@ -149,7 +153,7 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
 
   bool _poseSatisfied(Face face) {
     final yaw = face.headEulerAngleY ?? 0; // left(-)/right(+)
-    final pitch = face.headEulerAngleX ?? 0;
+    final pitch = face.headEulerAngleX ?? 0; // ML Kit: up(+)/down(-)
     switch (_pose) {
       case _Pose.front:
         return yaw.abs() <= _TurnBand.frontMaxYaw &&
@@ -161,19 +165,35 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
         return yaw.abs() >= _TurnBand.sideMinYaw &&
             yaw.abs() <= _TurnBand.sideMaxYaw &&
             (_firstTurnSign == null || yaw.sign.toInt() == -_firstTurnSign!);
+      case _Pose.up:
+        return yaw.abs() <= _TurnBand.vertMaxYaw &&
+            pitch >= _TurnBand.vertMinPitch &&
+            pitch <= _TurnBand.vertMaxPitch;
+      case _Pose.down:
+        return yaw.abs() <= _TurnBand.vertMaxYaw &&
+            pitch <= -_TurnBand.vertMinPitch &&
+            pitch >= -_TurnBand.vertMaxPitch;
     }
   }
 
   String _promptFor(List<Face> faces) {
     if (faces.isEmpty) return 'No face detected — center your face';
     if (faces.length > 1) return 'Only you should be in frame';
-    switch (_pose) {
+    return _instructionFor(_pose);
+  }
+
+  String _instructionFor(_Pose pose) {
+    switch (pose) {
       case _Pose.front:
         return 'Look straight at the camera';
       case _Pose.sideA:
         return 'Slowly turn your head to one side';
       case _Pose.sideB:
         return 'Now turn to the other side';
+      case _Pose.up:
+        return 'Now slowly tilt your head up';
+      case _Pose.down:
+        return 'Now slowly tilt your head down';
     }
   }
 
@@ -209,9 +229,7 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
       if (_saved.length >= _required) {
         await _finish();
       } else {
-        setState(() => _hint = _pose == _Pose.sideB
-            ? 'Great — now turn to the other side'
-            : 'Now turn your head to one side');
+        setState(() => _hint = _instructionFor(_pose));
       }
     } finally {
       _capturing = false;

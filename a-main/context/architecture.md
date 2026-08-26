@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Web | Vite, React, TypeScript, Tailwind CSS, browser `getUserMedia` | Admin room/camera operations, teacher attendance operations, student enrollment and history |
 | API | FastAPI, SQLAlchemy | REST API, authentication, session orchestration |
-| Recognition | Python, face_recognition, OpenCV | Enrollment encoding and independent camera workers |
+| Recognition | Python, InsightFace (SCRFD + ArcFace), ONNX Runtime, OpenCV | Enrollment embedding and independent camera workers |
 | Database | PostgreSQL via Docker Compose | Users, classes, sessions, sightings, attendance, audit events |
 | Media | Local `apps/api/storage/` | Enrollment photo files |
 

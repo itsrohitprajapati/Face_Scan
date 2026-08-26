@@ -9,6 +9,12 @@ python-multipart>=0.0.9,<1.0
 passlib[bcrypt]>=1.7,<2.0
 PyJWT>=2.9,<3.0
 httpx>=0.27,<1.0
-face-recognition>=1.3,<2.0
+# Face pipeline: SCRFD detection + landmark alignment + ArcFace embeddings.
+# `insightface` ships the FaceAnalysis app and model packs (buffalo_l / buffalo_s);
+# it pulls its own scientific deps (onnx, scikit-image, scipy, ...) at install.
+insightface>=0.7.3,<0.8
+# CPU inference backend. For a CUDA GPU, install `onnxruntime-gpu` instead and
+# set FACE_USE_GPU=true (see apps/api/app/config.py).
+onnxruntime>=1.17,<2.0
 opencv-python>=4.10,<5.0
-numpy>=1.26,<3.0
+numpy>=1.26,<2.0

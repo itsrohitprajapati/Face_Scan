@@ -1,7 +1,15 @@
-"""Independent OpenCV/face-recognition workers backed by persisted sightings."""
+"""Independent InsightFace recognition workers backed by persisted sightings.
+
+Each enabled camera in an active session's room gets its own daemon thread that
+reads frames, runs SCRFD detection + ArcFace embedding through the shared
+``face_engine``, matches every face against the enrolled gallery with cosine
+similarity, and persists confident matches as sightings. A bounded, annotated
+JPEG preview is published per worker for the teacher's live camera panel.
+"""
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -9,8 +17,8 @@ from time import monotonic
 from uuid import UUID
 
 import cv2
-import face_recognition
 import numpy as np
+from app.config import settings
 from app.database import SessionLocal
 from app.models import (
     AttendanceSession,
@@ -22,10 +30,16 @@ from app.models import (
     Sighting,
     User,
 )
+from app.services import face_engine
 from sqlalchemy import select
 
-MATCH_DISTANCE = 0.5
-SAMPLE_INTERVAL_SECONDS = 0.5
+logger = logging.getLogger(__name__)
+
+# Cosine-similarity threshold for a confident identity match. Sourced from
+# settings so it can be tuned per deployment without a code change.
+MATCH_SIMILARITY = settings.face_match_similarity
+SAMPLE_INTERVAL_SECONDS = settings.recognition_sample_interval_seconds
+PREVIEW_INTERVAL_SECONDS = 0.1
 PREVIEW_WIDTH = 640
 UNKNOWN_EVENT_INTERVAL = timedelta(seconds=5)
 DEDUPLICATION_WINDOW = timedelta(seconds=5)
@@ -47,6 +61,22 @@ class CameraHealth:
 
 def parse_capture_source(source_type: CameraSourceType, source: str) -> int | str:
     return int(source) if source_type is CameraSourceType.WEBCAM and source.isdigit() else source
+
+
+def _downscale_for_processing(frame: np.ndarray) -> np.ndarray:
+    """Cap the frame width so processing/preview stay bounded on large CCTV feeds.
+
+    The result is deterministic for a fixed input size, so detection boxes
+    computed on this frame stay valid when drawn on a later preview frame from
+    the same camera. Detection sensitivity to small faces is governed by
+    ``face_det_size``, not by this cap.
+    """
+    max_width = settings.face_max_frame_width
+    height, width = frame.shape[:2]
+    if width <= max_width:
+        return frame
+    scale = max_width / width
+    return cv2.resize(frame, (max_width, int(round(height * scale))), interpolation=cv2.INTER_AREA)
 
 
 def log_sighting(session_id: UUID, student_id: UUID, camera_id: UUID, distance: float) -> None:
@@ -120,9 +150,13 @@ def run_worker(
     """Read one camera source and independently log confident student matches."""
     capture = cv2.VideoCapture(parse_capture_source(camera.source_type, camera.source))
     capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    known_vectors = np.array(known_embeddings)
+    # Normalized gallery matrix (N, 512) for one-shot cosine scoring; empty when
+    # no enrolled student has a model-compatible embedding.
+    known_vectors = np.asarray(known_embeddings, dtype=np.float32)
     last_processed_at = 0.0
     last_preview_at = 0.0
+    # Each annotation is (left, top, right, bottom, label, color) in the
+    # coordinate space of the downscaled processing frame.
     annotations: list[tuple[int, int, int, int, str, tuple[int, int, int]]] = []
     try:
         while not stop_event.is_set():
@@ -136,38 +170,48 @@ def run_worker(
 
             recognition_manager.mark_camera_attempt(session_id, camera.id, successful=True)
             now = monotonic()
-            if now - last_processed_at >= SAMPLE_INTERVAL_SECONDS:
+            process_tick = now - last_processed_at >= SAMPLE_INTERVAL_SECONDS
+            preview_tick = now - last_preview_at >= PREVIEW_INTERVAL_SECONDS
+            if not (process_tick or preview_tick):
+                continue
+
+            processing_frame = _downscale_for_processing(frame)
+
+            if process_tick:
                 last_processed_at = now
                 annotations = []
-                small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-                rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-                locations = face_recognition.face_locations(rgb_frame)
-                encodings = face_recognition.face_encodings(rgb_frame, locations)
-                for location, encoding in zip(locations, encodings):
-                    top, right, bottom, left = (value * 4 for value in location)
+                for face in face_engine.detect_faces(processing_frame):
+                    left, top, right, bottom = face.bbox
                     label = "Unknown"
                     color = (80, 80, 220)
                     matched = False
-                    distances = face_recognition.face_distance(known_vectors, encoding)
-                    if distances.size:
-                        match_index = int(np.argmin(distances))
-                        distance = float(distances[match_index])
-                        if distance < MATCH_DISTANCE:
+                    similarities = face_engine.cosine_similarity_matrix(known_vectors, face.embedding)
+                    if similarities.size:
+                        best_index = int(np.argmax(similarities))
+                        similarity = float(similarities[best_index])
+                        if similarity >= MATCH_SIMILARITY:
                             matched = True
-                            label = known_student_names[match_index]
+                            label = known_student_names[best_index]
                             color = (70, 180, 90)
-                            log_sighting(session_id, known_student_ids[match_index], camera.id, distance)
+                            log_sighting(
+                                session_id,
+                                known_student_ids[best_index],
+                                camera.id,
+                                round(1.0 - similarity, 4),
+                            )
                     if not matched:
                         log_unknown_sighting(session_id, camera.id)
-                    annotations.append((top, right, bottom, left, label, color))
+                    annotations.append((left, top, right, bottom, label, color))
 
-            if now - last_preview_at >= 0.1:
+            if preview_tick:
                 last_preview_at = now
-                for top, right, bottom, left, label, color in annotations:
-                    cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-                    cv2.rectangle(frame, (left, max(0, bottom - 30)), (right, bottom), color, cv2.FILLED)
+                for left, top, right, bottom, label, color in annotations:
+                    cv2.rectangle(processing_frame, (left, top), (right, bottom), color, 2)
+                    cv2.rectangle(
+                        processing_frame, (left, max(0, bottom - 30)), (right, bottom), color, cv2.FILLED
+                    )
                     cv2.putText(
-                        frame,
+                        processing_frame,
                         label,
                         (left + 6, bottom - 9),
                         cv2.FONT_HERSHEY_SIMPLEX,
@@ -176,11 +220,11 @@ def run_worker(
                         1,
                         cv2.LINE_AA,
                     )
-                preview = frame
-                if frame.shape[1] > PREVIEW_WIDTH:
+                preview = processing_frame
+                if processing_frame.shape[1] > PREVIEW_WIDTH:
                     preview = cv2.resize(
-                        frame,
-                        (PREVIEW_WIDTH, int(frame.shape[0] * PREVIEW_WIDTH / frame.shape[1])),
+                        processing_frame,
+                        (PREVIEW_WIDTH, int(processing_frame.shape[0] * PREVIEW_WIDTH / processing_frame.shape[1])),
                     )
                 recognition_manager.publish_frame(session_id, camera.id, preview)
     finally:
@@ -244,9 +288,30 @@ class RecognitionManager:
                 .join(ClassMembership, ClassMembership.student_id == FaceEncoding.student_id)
                 .where(ClassMembership.class_id == session.class_id)
             ).all()
-            student_ids = [student_id for student_id, _name, _embedding in enrolled]
-            student_names = [name for _student_id, name, _embedding in enrolled]
-            embeddings = [embedding for _student_id, _name, embedding in enrolled]
+            # Only load embeddings that match the current model's width. This
+            # keeps a database that still holds legacy 128-d dlib encodings from
+            # crashing the cosine matcher; those students simply need to
+            # re-enroll to be recognized by the InsightFace pipeline.
+            expected_dim = face_engine.expected_dim()
+            student_ids: list[UUID] = []
+            student_names: list[str] = []
+            embeddings: list[list[float]] = []
+            skipped = 0
+            for student_id, name, embedding in enrolled:
+                if embedding is None or len(embedding) != expected_dim:
+                    skipped += 1
+                    continue
+                student_ids.append(student_id)
+                student_names.append(name)
+                embeddings.append(embedding)
+            if skipped:
+                logger.warning(
+                    "Session %s: skipped %d enrolled embedding(s) incompatible with the "
+                    "current model (expected %d-d). Affected students must re-enroll.",
+                    session_id,
+                    skipped,
+                    expected_dim,
+                )
             handles: list[WorkerHandle] = []
             for camera in sources:
                 stop_event = threading.Event()

@@ -9,16 +9,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
-import face_recognition
+import numpy as np
 from fastapi.testclient import TestClient
 
 API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
+from app.config import settings
 from app.main import app
+from app.services import face_engine
 
-MATCH_DISTANCE = 0.5
+MATCH_SIMILARITY = settings.face_match_similarity
 
 
 @dataclass
@@ -112,12 +114,16 @@ def setup_demo(image_path: Path, source: str) -> DemoSetup:
 
 
 def preview_recognition(image_path: Path, source: str, student_name: str) -> int:
-    """Show a live window using the same face-distance threshold as the attendance worker."""
-    reference_image = face_recognition.load_image_file(image_path)
-    reference_encodings = face_recognition.face_encodings(reference_image)
-    if len(reference_encodings) != 1:
+    """Show a live window using the same cosine-similarity threshold as the attendance worker."""
+    reference_image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+    if reference_image is None:
+        print("The reference image could not be read.")
+        return 1
+    reference_faces = face_engine.detect_faces(reference_image)
+    if len(reference_faces) != 1:
         print("The reference image must contain exactly one detectable face.")
         return 1
+    reference_embedding = reference_faces[0].embedding
 
     capture = cv2.VideoCapture(parse_source(source))
     if not capture.isOpened():
@@ -131,17 +137,13 @@ def preview_recognition(image_path: Path, source: str, student_name: str) -> int
             if not read_ok:
                 print("Could not read a camera frame.")
                 return 1
-            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-            rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-            locations = face_recognition.face_locations(rgb_frame)
-            encodings = face_recognition.face_encodings(rgb_frame, locations)
 
-            for (top, right, bottom, left), encoding in zip(locations, encodings, strict=True):
-                distance = float(face_recognition.face_distance(reference_encodings, encoding)[0])
-                matched = distance < MATCH_DISTANCE
-                label = f"{student_name} ({distance:.3f})" if matched else f"UNKNOWN ({distance:.3f})"
+            for face in face_engine.detect_faces(frame):
+                similarity = float(np.dot(reference_embedding, face.embedding))
+                matched = similarity >= MATCH_SIMILARITY
+                label = f"{student_name} ({similarity:.3f})" if matched else f"UNKNOWN ({similarity:.3f})"
                 color = (34, 197, 94) if matched else (0, 0, 255)
-                top, right, bottom, left = (value * 4 for value in (top, right, bottom, left))
+                left, top, right, bottom = face.bbox
                 cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
                 cv2.putText(frame, label, (left, max(28, top - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2)
 

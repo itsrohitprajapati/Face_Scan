@@ -79,6 +79,7 @@
 - Added guided student enrollment capture using MediaPipe Face Landmarker: the browser guides the student through front, left, and right poses, automatically captures stable poses, supports review/removal and scan-again, and retains three-image upload as a fallback.
 - Improved mobile enrollment camera UX with an explicit stop-camera control and portrait-friendly, non-cropped camera framing while preserving the wider desktop layout.
 - Verified the frontend refactor with the strict TypeScript check, Vite production build, and `git diff --check`.
+- Extended guided enrollment from three to five poses (front, left, right, up, and down) across the web (MediaPipe landmark yaw/pitch heuristics) and Flutter (ML Kit head-Euler yaw/pitch) capture flows; the backend now requires exactly five photos, producing a richer multi-view 512-d ArcFace gallery per student for better CCTV recognition at off-frontal angles.
 
 ## In Progress
 

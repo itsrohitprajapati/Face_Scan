@@ -1,21 +1,29 @@
-"""Biometric enrollment validation and local media persistence."""
+"""Biometric enrollment validation and local media persistence.
+
+Enrollment derives one 512-d ArcFace embedding per reference photo using the
+shared InsightFace engine (SCRFD detection + landmark alignment + ArcFace), so
+the enrolled gallery lives in the exact same vector space as the live camera
+probes produced by the recognition workers.
+"""
 
 from __future__ import annotations
 
 import shutil
 import uuid
 
-import face_recognition
+import cv2
+import numpy as np
 from app.config import settings
+from app.services import face_engine
 from fastapi import HTTPException, UploadFile, status
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
 
 
 def create_face_encodings(student_id: uuid.UUID, photos: list[UploadFile]) -> list[tuple[str, list[float]]]:
-    """Save three valid reference photos and derive a face embedding from each."""
-    if len(photos) != 3:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Exactly three photos are required.")
+    """Save five valid reference photos and derive a face embedding from each."""
+    if len(photos) != 5:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Exactly five photos are required.")
 
     student_directory = settings.media_root / "enrollment" / str(student_id)
     student_directory.mkdir(parents=True, exist_ok=False)
@@ -34,14 +42,21 @@ def create_face_encodings(student_id: uuid.UUID, photos: list[UploadFile]) -> li
             with destination.open("wb") as output:
                 shutil.copyfileobj(photo.file, output)
 
-            image = face_recognition.load_image_file(destination)
-            encodings = face_recognition.face_encodings(image)
-            if len(encodings) != 1:
+            image = cv2.imread(str(destination), cv2.IMREAD_COLOR)  # BGR, as InsightFace expects.
+            if image is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Photo {index} could not be read as an image.",
+                )
+
+            faces = face_engine.detect_faces(image)
+            if len(faces) != 1:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Photo {index} must contain exactly one detectable face.",
                 )
-            generated.append((str(destination.relative_to(settings.media_root)), encodings[0].tolist()))
+            embedding = np.asarray(faces[0].embedding, dtype=np.float32)
+            generated.append((str(destination.relative_to(settings.media_root)), embedding.tolist()))
     except Exception:
         shutil.rmtree(student_directory, ignore_errors=True)
         raise

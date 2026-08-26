@@ -6,7 +6,7 @@ Local-first, multi-camera classroom attendance with admin-managed rooms and came
 
 - A single invite-code-protected admin creates rooms, manages permanent room codes, and configures each room's cameras.
 - Admins can add, edit, enable, disable, and safely delete room cameras; rooms expose current availability and active-session usage.
-- Students enroll with exactly three camera captures or image uploads.
+- Students enroll with exactly five camera captures or image uploads.
 - Teachers create classes, enter a valid room name/code per session, and run attendance without camera-management access.
 - Each enabled camera in the selected room is processed by an independent recognition worker.
 - Raw sightings are retained for audit and debugging.
@@ -112,6 +112,10 @@ The API configuration includes:
 - `MEDIA_ROOT`: local enrollment-photo storage directory.
 - `OPENROUTER_API_KEY`: optional key for the bounded teacher attendance assistant.
 - `OPENROUTER_MODEL`: optional OpenRouter model override.
+- `FACE_MODEL_PACK`: InsightFace model pack (`buffalo_l` for best accuracy, `buffalo_s` for lighter hardware).
+- `FACE_DET_SIZE`: detector input size; raise (e.g. `1280`/`1600`) for wide-angle CCTV where students sit far from the lens.
+- `FACE_MATCH_SIMILARITY`: cosine-similarity match threshold (raise toward `0.5` to cut false matches, lower toward `0.3` if genuine students are missed).
+- `FACE_USE_GPU`: set `true` only when `onnxruntime-gpu` and CUDA are installed. See `apps/api/app/config.py` for the full list of `FACE_*` tunables.
 - `VITE_API_BASE_URL`: browser URL for the API, normally `http://localhost:8000/api/v1`.
 
 ### 2. Start PostgreSQL
@@ -122,12 +126,29 @@ docker compose up -d postgres
 
 ### 3. Start the API
 
+Create a virtual environment and install the dependencies (this pulls
+InsightFace and ONNX Runtime):
+
 ```bash
 cd apps/api
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
 .venv/bin/uvicorn app.main:app --reload
 ```
 
 The API is available at `http://localhost:8000`. Check `http://localhost:8000/health` or open `http://localhost:8000/docs` for the interactive API contract.
+
+> **Face model download.** On the first enrollment or session, InsightFace
+> downloads the configured model pack (~300 MB for `buffalo_l`) to
+> `~/.insightface/models`. This one-time step needs internet access; run
+> `.venv/bin/python scripts/verify_recognition_setup.py --source 0` to trigger
+> the download and confirm your camera and models are working.
+>
+> **Upgrading from the old dlib pipeline.** InsightFace embeddings are 512-d and
+> are *not* comparable to the previous 128-d `face_recognition` encodings.
+> Students enrolled before this change must re-register their face photos; the
+> recognition workers automatically skip any stale-dimension embeddings and log
+> a warning naming how many were skipped.
 
 ### 4. Start the web app
 
@@ -144,8 +165,8 @@ Open `http://localhost:5173`.
 ### Student workflow
 
 1. Select **Register**, choose **Student**, and enter full name, roll number, email, and password.
-2. Start the browser camera and capture exactly three reference photos. Individual captures can be retaken or removed before submitting.
-3. Submit registration. The API validates the photos, generates local face encodings, and signs the student in.
+2. Start the browser camera and capture exactly five reference photos (front, left, right, up, and down poses). Individual captures can be retaken or removed before submitting.
+3. Submit registration. The API validates the photos, generates local 512-d ArcFace face embeddings, and signs the student in.
 4. Ask a teacher for the class join code, enter it under **Join a class**, and confirm the membership.
 5. After completed sessions, view personal attendance percentage, Present/Late/Absent counts, coverage, and session history.
 

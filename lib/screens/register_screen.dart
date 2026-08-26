@@ -73,7 +73,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     if (_isStudent) {
       if (_rollNumber.text.trim().isEmpty) return 'Enter your roll number.';
-      if (_photos.length != 3) return 'Scan your face to capture 3 photos.';
+      if (_photos.length != 5) return 'Scan your face to capture 5 photos.';
     } else {
       if (_inviteCode.text.trim().isEmpty) return 'Enter the teacher invite code.';
     }
@@ -249,8 +249,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       const SectionLabel('Face enrollment'),
       const SizedBox(height: 8),
       const Text(
-        'A quick guided scan captures 3 photos — looking straight ahead, then '
-        'gently to each side. The server builds your recognition profile from '
+        'A quick guided scan captures 5 photos — looking straight ahead, to each '
+        'side, then up and down. The server builds your recognition profile from '
         'them, so make sure only your face is in frame.',
         style: TextStyle(color: AppColors.muted, fontSize: 13, height: 1.4),
       ),
@@ -273,11 +273,11 @@ class _PhotoStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: List.generate(3, (i) {
+      children: List.generate(5, (i) {
         final hasPhoto = i < photos.length;
         return Expanded(
           child: Padding(
-            padding: EdgeInsets.only(right: 10),
+            padding: const EdgeInsets.only(right: 10),
             child: AspectRatio(
               aspectRatio: 3 / 4,
               child: Container(

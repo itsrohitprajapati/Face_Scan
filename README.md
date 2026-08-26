@@ -35,6 +35,14 @@ Student-registration photos are uploaded to `POST /auth/register/student`; the
 backend derives and stores the face embeddings, so the same records power the
 web dashboards and recognition workers.
 
+> **Where matching actually happens.** Attendance recognition runs entirely on
+> the backend (`a-main/`) using **InsightFace** — SCRFD face detection + landmark
+> alignment + ArcFace 512-d embeddings — over the room's CCTV/IP cameras. The
+> on-device **MobileFaceNet** model below powers only the standalone 360°
+> embedding demo; it is not used for attendance and its vectors are never sent
+> to the server (the app uploads the three enrollment photos and the backend
+> computes the embeddings).
+
 ## 1. One-time setup
 
 ```bash
