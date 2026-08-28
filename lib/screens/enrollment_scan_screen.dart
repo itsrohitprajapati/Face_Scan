@@ -396,7 +396,7 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
       appBar: AppBar(
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
-        title: Text('Enroll your face (${_saved.length}/$_required)'),
+        title: Text('Enroll your face (${_saved.length}/$_required)', style: const TextStyle(fontSize: 18),),
       ),
       body: !ready
           ? const Center(child: CircularProgressIndicator(color: AppColors.green))
@@ -481,27 +481,27 @@ class _EnrollmentScanScreenState extends State<EnrollmentScanScreen>
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: (_capturing || _finishing)
-                        ? null
-                        : _triggerManualCapture,
-                    icon: const Icon(Icons.camera_alt_outlined),
-                    label: const Text('Capture photo'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black,
-                      disabledBackgroundColor: Colors.white24,
-                      disabledForegroundColor: Colors.white70,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
+                // const SizedBox(height: 12),
+                // SizedBox(
+                //   width: double.infinity,
+                //   child: ElevatedButton.icon(
+                //     onPressed: (_capturing || _finishing)
+                //         ? null
+                //         : _triggerManualCapture,
+                //     icon: const Icon(Icons.camera_alt_outlined),
+                //     label: const Text('Capture photo'),
+                //     style: ElevatedButton.styleFrom(
+                //       backgroundColor: Colors.white,
+                //       foregroundColor: Colors.black,
+                //       disabledBackgroundColor: Colors.white24,
+                //       disabledForegroundColor: Colors.white70,
+                //       padding: const EdgeInsets.symmetric(vertical: 14),
+                //     ),
+                //   ),
+                // ),
+                // const SizedBox(height: 6),
                 const Text(
-                  'Follow the guide to auto-capture, or tap to grab a shot.',
+                  'Follow the guide to auto-capture',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white70, fontSize: 12),
                 ),

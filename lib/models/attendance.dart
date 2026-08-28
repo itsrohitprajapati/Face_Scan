@@ -169,6 +169,36 @@ class AttendanceRecord {
       );
 }
 
+/// A single face-recognition detection during a live session, mirroring the
+/// API `SightingResponse`. `studentId` is null for an unmatched ("unknown")
+/// face.
+class Sighting {
+  final String id;
+  final String? studentId;
+  final String studentName;
+  final String cameraSourceId;
+  final DateTime matchedAt;
+
+  const Sighting({
+    required this.id,
+    required this.studentId,
+    required this.studentName,
+    required this.cameraSourceId,
+    required this.matchedAt,
+  });
+
+  bool get isUnknown => studentId == null;
+
+  factory Sighting.fromJson(Map<String, dynamic> json) => Sighting(
+        id: json['id'] as String,
+        studentId: json['student_id'] as String?,
+        studentName: json['student_name'] as String? ?? 'Unknown',
+        cameraSourceId: json['camera_source_id'] as String? ?? '',
+        matchedAt: DateTime.tryParse(json['matched_at'] as String? ?? '')?.toLocal() ??
+            DateTime.now(),
+      );
+}
+
 class AttendanceHistoryEntry {
   final String sessionId;
   final String classId;

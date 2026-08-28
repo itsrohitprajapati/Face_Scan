@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../models/app_user.dart';
 import '../theme.dart';
 import 'auth_gate.dart';
@@ -15,7 +14,7 @@ class AdminHomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin'),
+        title: const Text('Admin', style: TextStyle(fontSize: 18),),
         actions: [
           IconButton(
             tooltip: 'Sign out',

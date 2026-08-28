@@ -6,6 +6,7 @@ import '../models/classroom.dart';
 import '../services/api_service.dart';
 import '../theme.dart';
 import '../widgets/ui.dart';
+import 'live_session_screen.dart';
 import 'session_attendance_screen.dart';
 
 const _months = [
@@ -37,6 +38,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
   late Future<List<ClassStudent>> _future;
   late Future<List<AttendanceSession>> _sessionsFuture;
   bool _deleting = false;
+  DateTime? _sessionDateFilter;
 
   @override
   void initState() {
@@ -45,11 +47,37 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
     _sessionsFuture = ApiService.instance.listClassSessions(widget.classroom.id);
   }
 
+  Future<void> _pickSessionDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _sessionDateFilter ?? now,
+      firstDate: DateTime(now.year - 3),
+      lastDate: now,
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: Theme.of(context).colorScheme.copyWith(
+            primary: AppColors.green,
+            onPrimary: Colors.white,
+            onSurface: AppColors.ink,
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(foregroundColor: AppColors.green),
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) setState(() => _sessionDateFilter = picked);
+  }
+
+  void _clearSessionDate() => setState(() => _sessionDateFilter = null);
+
   Future<void> _refresh() async {
     final studentsFuture =
-        ApiService.instance.listClassStudents(widget.classroom.id);
+    ApiService.instance.listClassStudents(widget.classroom.id);
     final sessionsFuture =
-        ApiService.instance.listClassSessions(widget.classroom.id);
+    ApiService.instance.listClassSessions(widget.classroom.id);
     setState(() {
       _future = studentsFuture;
       _sessionsFuture = sessionsFuture;
@@ -85,7 +113,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
         title: const Text('Delete class?'),
         content: Text(
           'This permanently removes "${widget.classroom.name}", every student '
-          'membership, and all session history. This cannot be undone.',
+              'membership, and all session history. This cannot be undone.',
           style: const TextStyle(color: AppColors.muted, height: 1.4),
         ),
         actions: [
@@ -131,6 +159,17 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
     );
   }
 
+  Future<void> _openLiveSession() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => LiveSessionScreen(classroom: widget.classroom),
+      ),
+    );
+    // Starting/stopping a session changes both the session list and, once
+    // attendance is calculated, the roster's per-student summary.
+    await _refresh();
+  }
+
   Future<void> _openSession(AttendanceSession session) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -146,7 +185,7 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.classroom.name),
+        title: Text(widget.classroom.name, style: TextStyle(fontSize: 18),),
         actions: [
           if (_deleting)
             const Padding(
@@ -177,14 +216,29 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
             return ListView(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
               children: [
-                _ClassSummaryCard(classroom: widget.classroom, onCopy: _copyCode),
+                _ClassSummaryCard(
+                  classroom: widget.classroom,
+                  onCopy: _copyCode,
+                  onLiveSession: _openLiveSession,
+                ),
                 const SizedBox(height: 24),
-                const SectionLabel('Attendance sessions'),
+                Row(
+                  children: [
+                    _DateFilterButton(
+                      selectedDate: _sessionDateFilter,
+                      onPickDate: _pickSessionDate,
+                      onClearDate: _clearSessionDate,
+                    ),
+                    const SizedBox(width: 10),
+                    const SectionLabel('Attendance sessions'),
+                  ],
+                ),
                 const SizedBox(height: 10),
                 _SessionsSection(
                   future: _sessionsFuture,
                   onOpen: _openSession,
                   onRetry: _refresh,
+                  selectedDate: _sessionDateFilter,
                 ),
                 const SizedBox(height: 24),
                 const SectionLabel('Enrolled students'),
@@ -202,17 +256,17 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
                     onRetry: _refresh,
                   )
                 else if ((snapshot.data ?? const []).isEmpty)
-                  const _EmptyHint(
-                    'No students have joined yet. Share the join code above so '
-                    'they can enroll.',
-                  )
-                else
-                  ...snapshot.data!.map(
-                    (student) => _StudentTile(
-                      student: student,
-                      onTap: () => _openStudentAttendance(student),
+                    const _EmptyHint(
+                      'No students have joined yet. Share the join code above so '
+                          'they can enroll.',
+                    )
+                  else
+                    ...snapshot.data!.map(
+                          (student) => _StudentTile(
+                        student: student,
+                        onTap: () => _openStudentAttendance(student),
+                      ),
                     ),
-                  ),
               ],
             );
           },
@@ -225,7 +279,12 @@ class _ClassDetailScreenState extends State<ClassDetailScreen> {
 class _ClassSummaryCard extends StatelessWidget {
   final Classroom classroom;
   final VoidCallback onCopy;
-  const _ClassSummaryCard({required this.classroom, required this.onCopy});
+  final VoidCallback onLiveSession;
+  const _ClassSummaryCard({
+    required this.classroom,
+    required this.onCopy,
+    required this.onLiveSession,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -257,7 +316,7 @@ class _ClassSummaryCard extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(classroom.name,
                         style: const TextStyle(
@@ -267,6 +326,12 @@ class _ClassSummaryCard extends StatelessWidget {
                         style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
                   ],
                 ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'Live session',
+                icon: const Icon(Icons.videocam_outlined, color: AppColors.green),
+                onPressed: onLiveSession,
               ),
             ],
           ),
@@ -308,15 +373,21 @@ class _ClassSummaryCard extends StatelessWidget {
 
 /// Lists this class's attendance sessions (newest first) with its own loading,
 /// error and empty states so a session-load failure never hides the roster.
+/// An optional [selectedDate] narrows the list to sessions started that day.
 class _SessionsSection extends StatelessWidget {
   final Future<List<AttendanceSession>> future;
   final void Function(AttendanceSession) onOpen;
   final Future<void> Function() onRetry;
+  final DateTime? selectedDate;
   const _SessionsSection({
     required this.future,
     required this.onOpen,
     required this.onRetry,
+    required this.selectedDate,
   });
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   @override
   Widget build(BuildContext context) {
@@ -340,17 +411,81 @@ class _SessionsSection extends StatelessWidget {
         final sessions = snapshot.data ?? const [];
         if (sessions.isEmpty) {
           return const _EmptyHint(
-            'No attendance sessions yet. Start one from the web dashboard, then '
-            'mark or correct attendance here.',
+            'No attendance sessions yet. Tap the camera icon above to start a '
+                'live session.',
+          );
+        }
+        final filtered = selectedDate == null
+            ? sessions
+            : sessions
+            .where((s) => _isSameDay(s.startedAt, selectedDate!))
+            .toList();
+        if (filtered.isEmpty) {
+          return _EmptyHint(
+            'No sessions on ${_formatDate(selectedDate!).split(' · ').first}.',
           );
         }
         return Column(
-          children: sessions
+          children: filtered
               .map((session) =>
-                  _SessionTile(session: session, onTap: () => onOpen(session)))
+              _SessionTile(session: session, onTap: () => onOpen(session)))
               .toList(),
         );
       },
+    );
+  }
+}
+
+/// Compact calendar button, positioned to the left of the "Attendance
+/// sessions" label. Shows the picked date and a clear (×) once active.
+class _DateFilterButton extends StatelessWidget {
+  final DateTime? selectedDate;
+  final VoidCallback onPickDate;
+  final VoidCallback onClearDate;
+  const _DateFilterButton({
+    required this.selectedDate,
+    required this.onPickDate,
+    required this.onClearDate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = selectedDate != null;
+    return InkWell(
+      onTap: onPickDate,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? AppColors.greenSoft : AppColors.paper,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: active ? AppColors.green : AppColors.line),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.calendar_today_outlined,
+                size: 14, color: active ? AppColors.green : AppColors.muted),
+            if (active) ...[
+              const SizedBox(width: 6),
+              Text(
+                _formatDate(selectedDate!).split(' · ').first,
+                style: const TextStyle(
+                  color: AppColors.green,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(width: 4),
+              InkWell(
+                onTap: onClearDate,
+                borderRadius: BorderRadius.circular(999),
+                child: const Icon(Icons.close, size: 14, color: AppColors.green),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -427,7 +562,7 @@ class _SessionStatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration:
-          BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+      BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
       child: Text(
         active ? 'Live' : 'Completed',
         style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w700),
@@ -560,15 +695,15 @@ class _StudentAttendanceSheetState extends State<_StudentAttendanceSheet> {
                     isError: true,
                   )
                 else ...[
-                  _Metrics(summary: snapshot.data!),
-                  const SizedBox(height: 24),
-                  const SectionLabel('Session history'),
-                  const SizedBox(height: 10),
-                  if (snapshot.data!.history.isEmpty)
-                    const _EmptyHint('No completed sessions yet.')
-                  else
-                    ...snapshot.data!.history.map((e) => _HistoryTile(entry: e)),
-                ],
+                    _Metrics(summary: snapshot.data!),
+                    const SizedBox(height: 24),
+                    const SectionLabel('Session history'),
+                    const SizedBox(height: 10),
+                    if (snapshot.data!.history.isEmpty)
+                      const _EmptyHint('No completed sessions yet.')
+                    else
+                      ...snapshot.data!.history.map((e) => _HistoryTile(entry: e)),
+                  ],
               ],
             );
           },
@@ -664,8 +799,8 @@ class _HistoryTile extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             '${_formatDate(entry.sessionStartedAt)} · '
-            '${entry.presencePercentage.toStringAsFixed(0)}% coverage '
-            '(${entry.observedWindows}/${entry.eligibleWindows} windows)',
+                '${entry.presencePercentage.toStringAsFixed(0)}% coverage '
+                '(${entry.observedWindows}/${entry.eligibleWindows} windows)',
             style: const TextStyle(color: AppColors.muted, fontSize: 12),
           ),
         ],

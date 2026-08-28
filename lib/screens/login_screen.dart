@@ -63,7 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Smart Attendance'),
+        title: const Text('Smart Attendance', style: TextStyle(fontSize: 18),),
         actions: [
           IconButton(
             tooltip: 'Server settings',
@@ -167,16 +167,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (changed && mounted) setState(() {});
                 },
               ),
-              const SizedBox(height: 8),
-              Center(
-                child: TextButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const HomeScreen()),
-                  ),
-                  icon: const Icon(Icons.face_retouching_natural, size: 18),
-                  label: const Text('Try the face embedding demo'),
-                ),
-              ),
+              // const SizedBox(height: 8),
+              // Center(
+              //   child: TextButton.icon(
+              //     onPressed: () => Navigator.of(context).push(
+              //       MaterialPageRoute(builder: (_) => const HomeScreen()),
+              //     ),
+              //     icon: const Icon(Icons.face_retouching_natural, size: 18),
+              //     label: const Text('Try the face embedding demo'),
+              //   ),
+              // ),
             ],
           ),
         ),

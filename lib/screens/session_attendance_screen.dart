@@ -33,6 +33,8 @@ class SessionAttendanceScreen extends StatefulWidget {
 class _SessionAttendanceScreenState extends State<SessionAttendanceScreen> {
   late Future<List<AttendanceRecord>> _future;
   List<AttendanceRecord> _records = const [];
+  final _searchController = TextEditingController();
+  String _query = '';
 
   bool get _editable => widget.session.isCompleted;
 
@@ -42,9 +44,24 @@ class _SessionAttendanceScreenState extends State<SessionAttendanceScreen> {
     _future = _load();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<AttendanceRecord> get _filteredRecords {
+    if (_query.isEmpty) return _records;
+    return _records
+        .where((r) =>
+    r.studentName.toLowerCase().contains(_query) ||
+        r.rollNumber.toLowerCase().contains(_query))
+        .toList();
+  }
+
   Future<List<AttendanceRecord>> _load() async {
     final records =
-        await ApiService.instance.listSessionAttendance(widget.session.id);
+    await ApiService.instance.listSessionAttendance(widget.session.id);
     if (mounted) setState(() => _records = records);
     return records;
   }
@@ -91,9 +108,9 @@ class _SessionAttendanceScreenState extends State<SessionAttendanceScreen> {
       setState(() {
         _records = _records
             .map((r) => r.studentId == record.studentId
-                ? r.copyWith(
-                    effectiveStatus: override.status, latestOverride: override)
-                : r)
+            ? r.copyWith(
+            effectiveStatus: override.status, latestOverride: override)
+            : r)
             .toList();
       });
       _snack('${record.studentName} marked ${override.status}');
@@ -125,7 +142,7 @@ class _SessionAttendanceScreenState extends State<SessionAttendanceScreen> {
                 else
                   const InlineNotice(
                     'This session is still live. Attendance can be marked once '
-                    'you stop the session from the web dashboard.',
+                        'you stop the session from the web dashboard.',
                   ),
                 const SizedBox(height: 20),
                 if (loading)
@@ -142,23 +159,35 @@ class _SessionAttendanceScreenState extends State<SessionAttendanceScreen> {
                     onRetry: _refresh,
                   )
                 else ...[
-                  _Totals(records: _records),
-                  const SizedBox(height: 20),
-                  const SectionLabel('Students'),
-                  const SizedBox(height: 10),
-                  if (_records.isEmpty)
-                    const _EmptyHint(
-                      'No attendance records for this session yet.',
-                    )
-                  else
-                    ..._records.map(
-                      (record) => _RecordTile(
-                        record: record,
-                        editable: _editable,
-                        onMark: () => _mark(record),
+                    _Totals(records: _records),
+                    const SizedBox(height: 20),
+                    const SectionLabel('Students'),
+                    const SizedBox(height: 10),
+                    if (_records.isNotEmpty) ...[
+                      _SearchField(
+                        controller: _searchController,
+                        onChanged: (value) =>
+                            setState(() => _query = value.trim().toLowerCase()),
                       ),
-                    ),
-                ],
+                      const SizedBox(height: 10),
+                    ],
+                    if (_records.isEmpty)
+                      const _EmptyHint(
+                        'No attendance records for this session yet.',
+                      )
+                    else if (_filteredRecords.isEmpty)
+                      _EmptyHint(
+                        'No students match "${_searchController.text.trim()}".',
+                      )
+                    else
+                      ..._filteredRecords.map(
+                            (record) => _RecordTile(
+                          record: record,
+                          editable: _editable,
+                          onMark: () => _mark(record),
+                        ),
+                      ),
+                  ],
               ],
             );
           },
@@ -265,12 +294,55 @@ class _EditableNotice extends StatelessWidget {
           Expanded(
             child: Text(
               'Tap a student to mark them present, late or absent. Your '
-              'correction is recorded alongside the automated result.',
+                  'correction is recorded alongside the automated result.',
               style: TextStyle(
                   color: AppColors.green, fontSize: 12.5, height: 1.35),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Compact search field for filtering the student list below by name or
+/// roll number. Purely client-side — the records are already loaded.
+class _SearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final void Function(String) onChanged;
+  const _SearchField({required this.controller, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.paper,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: TextField(
+        controller: controller,
+        textInputAction: TextInputAction.search,
+        onChanged: onChanged,
+        decoration: InputDecoration(
+          hintText: 'Search by name or roll number',
+          prefixIcon: const Icon(Icons.search, color: AppColors.muted, size: 20),
+          suffixIcon: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, value, _) {
+              if (value.text.isEmpty) return const SizedBox.shrink();
+              return IconButton(
+                icon: const Icon(Icons.close, color: AppColors.muted, size: 18),
+                onPressed: () {
+                  controller.clear();
+                  onChanged('');
+                },
+              );
+            },
+          ),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        ),
       ),
     );
   }
@@ -365,8 +437,8 @@ class _RecordTile extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         'Roll ${record.rollNumber} · '
-                        '${record.observedWindows}/${record.eligibleWindows} min '
-                        '(${record.presencePercentage.toStringAsFixed(0)}%)',
+                            '${record.observedWindows}/${record.eligibleWindows} min '
+                            '(${record.presencePercentage.toStringAsFixed(0)}%)',
                         style: const TextStyle(
                             color: AppColors.muted, fontSize: 12.5),
                         overflow: TextOverflow.ellipsis,
@@ -558,8 +630,8 @@ class _StatusChoice extends StatelessWidget {
                 status == 'present'
                     ? Icons.check_circle_outline
                     : status == 'late'
-                        ? Icons.schedule
-                        : Icons.cancel_outlined,
+                    ? Icons.schedule
+                    : Icons.cancel_outlined,
                 color: selected ? fg : AppColors.muted,
                 size: 22,
               ),

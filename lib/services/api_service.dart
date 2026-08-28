@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 import '../models/app_user.dart';
 import '../models/attendance.dart';
+import '../models/camera_source.dart';
 import '../models/classroom.dart';
 import 'auth_store.dart';
 
@@ -82,9 +84,9 @@ class ApiService {
   Uri _uri(String path) => Uri.parse('$_baseUrl$path');
 
   Map<String, String> _headers({bool json = true}) => {
-        if (json) 'Content-Type': 'application/json',
-        if (_token != null) 'Authorization': 'Bearer $_token',
-      };
+    if (json) 'Content-Type': 'application/json',
+    if (_token != null) 'Authorization': 'Bearer $_token',
+  };
 
   Never _fail(http.Response response) {
     var message = 'Something went wrong. Please try again.';
@@ -119,6 +121,24 @@ class ApiService {
     return response.body.isEmpty ? null : jsonDecode(response.body);
   }
 
+  /// Like [_get] but returns the raw response body instead of decoding JSON,
+  /// for endpoints that reply with an image (camera preview frames). Error
+  /// bodies are still JSON, so error details are parsed the same way as
+  /// [_fail] — e.g. the real reason a webcam couldn't be opened, not a
+  /// generic fallback string.
+  Future<Uint8List> _getBytes(String path) async {
+    late final http.Response response;
+    try {
+      response = await http.get(_uri(path), headers: _headers(json: false));
+    } on SocketException {
+      throw ApiException('Cannot reach the server at $_baseUrl.', 0);
+    } on HttpException {
+      throw ApiException('Cannot reach the server at $_baseUrl.', 0);
+    }
+    if (response.statusCode >= 400) _fail(response);
+    return response.bodyBytes;
+  }
+
   Future<dynamic> _post(String path, Object? body) async {
     late final http.Response response;
     try {
@@ -139,14 +159,14 @@ class ApiService {
   /// Issues a DELETE. The backend replies `204 No Content`, so there is no body
   /// to decode; a non-2xx status is surfaced through [_fail].
   Future<void> _delete(String path) async {    late final http.Response response;
-    try {
-      response = await http.delete(_uri(path), headers: _headers(json: false));
-    } on SocketException {
-      throw ApiException('Cannot reach the server at $_baseUrl.', 0);
-    } on HttpException {
-      throw ApiException('Cannot reach the server at $_baseUrl.', 0);
-    }
-    if (response.statusCode >= 400) _fail(response);
+  try {
+    response = await http.delete(_uri(path), headers: _headers(json: false));
+  } on SocketException {
+    throw ApiException('Cannot reach the server at $_baseUrl.', 0);
+  } on HttpException {
+    throw ApiException('Cannot reach the server at $_baseUrl.', 0);
+  }
+  if (response.statusCode >= 400) _fail(response);
   }
 
   Future<dynamic> _patch(String path, Object? body) async {
@@ -283,6 +303,54 @@ class ApiService {
   Future<List<AttendanceSession>> listClassSessions(String classId) async {
     final data = await _get('/classes/$classId/sessions') as List;
     return data.map((e) => AttendanceSession.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Enabled cameras for the room identified by a room number/code, used to
+  /// populate the live-feed source picker before and during a session.
+  Future<List<CameraSource>> listTeacherRoomCameras(String roomCode) async {
+    final data = await _get('/teacher/rooms/${Uri.encodeComponent(roomCode.trim())}/cameras') as List;
+    return data.map((e) => CameraSource.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Starts a live recognition session for a class in the given room. The
+  /// backend rejects this with `409` if the class or room already has an
+  /// active session, or `422` if the room has no enabled cameras.
+  Future<AttendanceSession> startSession({
+    required String classId,
+    required String title,
+    required String roomCode,
+    required num qualificationWindowMinutes,
+    required int gracePeriodMinutes,
+  }) async {
+    final data = await _post('/classes/$classId/sessions', {
+      'title': title.trim(),
+      'room_code': roomCode.trim(),
+      'qualification_window_minutes': qualificationWindowMinutes,
+      'grace_period_minutes': gracePeriodMinutes,
+      'minimum_sightings': 1,
+    });
+    return AttendanceSession.fromJson(data as Map<String, dynamic>);
+  }
+
+  /// Stops a live session and triggers attendance calculation. Returns the
+  /// now-completed session.
+  Future<AttendanceSession> stopSession(String sessionId) async {
+    final data = await _post('/sessions/$sessionId/stop', null);
+    return AttendanceSession.fromJson(data as Map<String, dynamic>);
+  }
+
+  /// The most recent annotated JPEG frame captured by a camera during a live
+  /// session. Throws a 404-flagged [ApiException] while no frame has been
+  /// captured yet, which callers should treat as "still waiting" rather than
+  /// a hard failure.
+  Future<Uint8List> previewCameraFrame(String sessionId, String cameraId) =>
+      _getBytes('/sessions/$sessionId/cameras/$cameraId/preview');
+
+  /// Recent face-recognition detections for a live (or completed) session,
+  /// newest first.
+  Future<List<Sighting>> listSessionSightings(String sessionId) async {
+    final data = await _get('/sessions/$sessionId/sightings') as List;
+    return data.map((e) => Sighting.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   /// Per-student attendance for one session, including any teacher overrides.
